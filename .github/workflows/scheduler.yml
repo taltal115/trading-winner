@@ -4,8 +4,11 @@ name: scheduler
 # Each job is a stateless, idempotent worker that connects to Firestore and logs
 # its run as a JobRecord. Crons are in UTC and target US market hours on
 # weekdays. Configure repo/environment vars + secrets before enabling:
-#   vars:    TW_FIRESTORE_PROJECT, TW_PHASE (>=5 for live ops)
+#   vars:    TW_FIRESTORE_PROJECT, TW_PHASE (optional overrides; see defaults below)
 #   secrets: FIREBASE_SERVICE_ACCOUNT (GCP service-account JSON)
+#
+# TW_PHASE / TW_FIRESTORE_PROJECT default when repo vars are unset — an empty
+# TW_PHASE env var breaks pydantic (ValidationError on SystemPhase).
 
 on:
   workflow_dispatch:
@@ -26,9 +29,9 @@ permissions:
 
 env:
   TW_ENVIRONMENT: staging
-  TW_PHASE: ${{ vars.TW_PHASE }}
+  TW_PHASE: ${{ vars.TW_PHASE || '5' }}
   TW_REPOSITORY_BACKEND: firestore
-  TW_FIRESTORE_PROJECT: ${{ vars.TW_FIRESTORE_PROJECT }}
+  TW_FIRESTORE_PROJECT: ${{ vars.TW_FIRESTORE_PROJECT || 'trading-winner-staging' }}
   GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-credentials.json
 
 jobs:

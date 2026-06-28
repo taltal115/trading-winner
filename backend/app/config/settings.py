@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from enum import IntEnum, StrEnum
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -129,6 +130,21 @@ class Settings(BaseSettings):
     regime_data_backend: str = "mock"  # "mock" (deterministic, default) | "ibkr"
     # Open-position cap multiplier applied when exposure_recommendation == low.
     regime_low_exposure_position_ratio: float = 0.5
+
+    @field_validator("phase", mode="before")
+    @classmethod
+    def _coerce_empty_phase(cls, value: object) -> object:
+        # GitHub Actions sets TW_PHASE="" when vars.TW_PHASE is missing; treat as unset.
+        if value == "":
+            return SystemPhase.MVP_READ_ONLY
+        return value
+
+    @field_validator("firestore_project", mode="before")
+    @classmethod
+    def _coerce_empty_firestore_project(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
 
     @property
     def ai_required_for_execution(self) -> bool:
