@@ -190,6 +190,73 @@ npm run build
 
 CI runs the same checks via [`.github/workflows/backend.yml`](.github/workflows/backend.yml) and [`.github/workflows/frontend.yml`](.github/workflows/frontend.yml).
 
+## GitHub Actions scheduler (Firestore)
+
+The [scheduler workflow](.github/workflows/scheduler.yml) runs workers against Firestore. If you see:
+
+```text
+google.api_core.exceptions.PermissionDenied: 403 Missing or insufficient permissions.
+```
+
+the service account in `FIREBASE_SERVICE_ACCOUNT` cannot write to the project in `TW_FIRESTORE_PROJECT`.
+
+### 1. Create a dedicated service account (GCP Console)
+
+1. [IAM → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=trading-winner-staging)
+2. **Create service account** → e.g. `github-actions-scheduler`
+3. **Grant role** on project `trading-winner-staging`:
+   - **Cloud Datastore User** (`roles/datastore.user`) — read/write Firestore
+4. **Keys** → **Add key** → **JSON** → download
+
+### 2. Store the key in GitHub
+
+**Settings → Secrets and variables → Actions → Secrets**
+
+| Secret | Value |
+|--------|--------|
+| `FIREBASE_SERVICE_ACCOUNT` | Paste the **entire** JSON file contents |
+
+If the workflow uses the **staging** environment, add the same secret under **Settings → Environments → staging → Secrets**.
+
+Optional variables (defaults exist in the workflow):
+
+| Variable | Default |
+|----------|---------|
+| `TW_FIRESTORE_PROJECT` | `trading-winner-staging` |
+| `TW_PHASE` | `5` |
+
+### 3. Confirm Firestore exists
+
+Firebase Console → **Firestore Database** → database must be created in **Native mode** on the **same** GCP project.
+
+### 4. Grant IAM via CLI (alternative)
+
+```bash
+PROJECT=trading-winner-staging
+SA=github-actions-scheduler@${PROJECT}.iam.gserviceaccount.com
+
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" \
+  --role="roles/datastore.user"
+```
+
+### 5. Verify locally before pushing
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install ".[firestore]"
+
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+export TW_REPOSITORY_BACKEND=firestore
+export TW_FIRESTORE_PROJECT=trading-winner-staging
+
+python scripts/verify_firestore_access.py
+python -m app.workers.daily_pipeline
+```
+
+The scheduler workflow runs `verify_firestore_access.py` before each worker so IAM problems fail fast with a clear message.
+
 ## Workers (optional, manual)
 
 Scheduled jobs are defined in [`.github/workflows/scheduler.yml`](.github/workflows/scheduler.yml). Run them locally against the in-memory store:

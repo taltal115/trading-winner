@@ -5,10 +5,14 @@ name: scheduler
 # its run as a JobRecord. Crons are in UTC and target US market hours on
 # weekdays. Configure repo/environment vars + secrets before enabling:
 #   vars:    TW_FIRESTORE_PROJECT, TW_PHASE (optional overrides; see defaults below)
-#   secrets: FIREBASE_SERVICE_ACCOUNT (GCP service-account JSON)
+#   secrets: FIREBASE_SERVICE_ACCOUNT (GCP service-account JSON for the SAME
+#            project as TW_FIRESTORE_PROJECT; needs roles/datastore.user)
 #
 # TW_PHASE / TW_FIRESTORE_PROJECT default when repo vars are unset — an empty
 # TW_PHASE env var breaks pydantic (ValidationError on SystemPhase).
+#
+# If workers fail with PERMISSION_DENIED on Firestore, see README.md
+# "GitHub Actions scheduler (Firestore)".
 
 on:
   workflow_dispatch:
@@ -32,7 +36,6 @@ env:
   TW_PHASE: ${{ vars.TW_PHASE || '5' }}
   TW_REPOSITORY_BACKEND: firestore
   TW_FIRESTORE_PROJECT: ${{ vars.TW_FIRESTORE_PROJECT || 'trading-winner-staging' }}
-  GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/gcp-credentials.json
 
 jobs:
   daily-pipeline:
@@ -46,14 +49,9 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/firestore-worker-setup
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/pyproject.toml
-      - run: pip install ".[firestore]"
-      - name: Write GCP credentials
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - run: python -m app.workers.daily_pipeline
 
   position-monitor:
@@ -67,14 +65,9 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/firestore-worker-setup
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/pyproject.toml
-      - run: pip install ".[firestore]"
-      - name: Write GCP credentials
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - run: python -m app.workers.position_monitor
 
   reconciliation:
@@ -88,14 +81,9 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/firestore-worker-setup
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/pyproject.toml
-      - run: pip install ".[firestore]"
-      - name: Write GCP credentials
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - run: python -m app.workers.reconciliation
 
   learning-job:
@@ -109,12 +97,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/firestore-worker-setup
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/pyproject.toml
-      - run: pip install ".[firestore]"
-      - name: Write GCP credentials
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - run: python -m app.workers.learning_job
