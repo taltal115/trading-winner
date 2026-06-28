@@ -12,10 +12,11 @@ Encodes the data-integrity rules from DATABASE.md and .cursor/rules.md:
 from __future__ import annotations
 
 from app.config.settings import Settings
-from app.models.entities import Signal, Trade
+from app.models.entities import Signal, Trade, TradeOutcome
 from app.repositories.repositories import (
     AiAnalysisRepository,
     FeatureRepository,
+    OutcomeRepository,
     SignalRepository,
     TradeRepository,
 )
@@ -32,11 +33,13 @@ class IntegrityService:
         signal_repo: SignalRepository,
         trade_repo: TradeRepository,
         ai_repo: AiAnalysisRepository,
+        outcome_repo: OutcomeRepository | None = None,
     ) -> None:
         self._features = feature_repo
         self._signals = signal_repo
         self._trades = trade_repo
         self._ai = ai_repo
+        self._outcomes = outcome_repo
 
     def check_signal(self, signal: Signal) -> list[str]:
         violations: list[str] = []
@@ -64,6 +67,22 @@ class IntegrityService:
             )
         return violations
 
+    def check_outcome(self, outcome: TradeOutcome) -> list[str]:
+        violations: list[str] = []
+        if self._trades.get(outcome.trade_id) is None:
+            violations.append(f"outcome {outcome.id} references missing trade {outcome.trade_id}")
+        if self._signals.get(outcome.signal_id) is None:
+            violations.append(f"outcome {outcome.id} references missing signal {outcome.signal_id}")
+        if self._features.get(outcome.feature_snapshot_id) is None:
+            violations.append(
+                f"outcome {outcome.id} references missing feature {outcome.feature_snapshot_id}"
+            )
+        if outcome.ai_analysis_id and self._ai.get(outcome.ai_analysis_id) is None:
+            violations.append(
+                f"outcome {outcome.id} references missing ai_analysis {outcome.ai_analysis_id}"
+            )
+        return violations
+
     def find_orphans(self) -> list[str]:
         violations: list[str] = []
         for signal in self._signals.list():
@@ -74,6 +93,9 @@ class IntegrityService:
             related = analysis.related_id
             if self._signals.get(related) is None and self._trades.get(related) is None:
                 violations.append(f"ai_analysis {analysis.id} is orphaned (related_id {related})")
+        if self._outcomes is not None:
+            for outcome in self._outcomes.list():
+                violations.extend(self.check_outcome(outcome))
         return violations
 
     def assert_trade_executable(self, trade: Trade, settings: Settings) -> None:

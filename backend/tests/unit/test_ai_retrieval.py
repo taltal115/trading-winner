@@ -139,6 +139,7 @@ def test_retrieved_context_reaches_provider_and_sets_embedding_version() -> None
     assert analysis is not None
     assert provider.seen_context == ["nvidia ai chip demand surges on cloud capex"]
     assert analysis.embedding_version == "mock-embed-v1"
+    assert analysis.retrieved_source_ids == ["news_NVDA_2026-07-28_1"]
 
 
 def test_without_retrieval_context_is_empty_and_version_default() -> None:
@@ -150,3 +151,4 @@ def test_without_retrieval_context_is_empty_and_version_default() -> None:
     assert analysis is not None
     assert provider.seen_context == []
     assert analysis.embedding_version == "v1"
+    assert analysis.retrieved_source_ids == []

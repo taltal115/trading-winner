@@ -17,8 +17,11 @@ from app.repositories.repositories import (
     BacktestRepository,
     EmbeddingRepository,
     FeatureRepository,
+    FundamentalRepository,
     LogRepository,
+    MarketRegimeRepository,
     NewsRepository,
+    OutcomeRepository,
     PortfolioRepository,
     PositionRepository,
     RiskDecisionRepository,
@@ -34,19 +37,24 @@ from app.services.broker import BrokerClient, MockBroker
 from app.services.embedding_provider import EmbeddingProvider, MockEmbeddingProvider
 from app.services.execution_service import ExecutionService
 from app.services.feature_service import FeatureService
+from app.services.fundamental_data import FundamentalDataSource, MockFundamentalDataSource
+from app.services.fundamental_service import FundamentalService
 from app.services.ibkr_broker import IBKRBroker
 from app.services.ibkr_market_data import IBKRMarketDataSource
 from app.services.ingestion_service import IngestionService
 from app.services.integrity_service import IntegrityService
 from app.services.log_writer import LogWriter
 from app.services.market_data import MarketDataSource, MockMarketDataSource
+from app.services.market_regime_service import MarketRegimeService
 from app.services.news_service import NewsService
 from app.services.openai_embedding_provider import OpenAIEmbeddingProvider
 from app.services.openai_provider import OpenAIProvider
+from app.services.outcome_service import OutcomeService
 from app.services.pipeline_service import PipelineService
 from app.services.portfolio_service import PortfolioService
 from app.services.position_monitor_service import PositionMonitorService
 from app.services.reconciliation_service import ReconciliationService
+from app.services.regime_data import MacroDataSource, MockMacroDataSource
 from app.services.retrieval_service import RetrievalService
 from app.services.risk_service import RiskService
 from app.services.signal_service import SignalService
@@ -103,6 +111,22 @@ def _build_source(settings: Settings) -> MarketDataSource:
     )
 
 
+def _build_fundamental_source(settings: Settings) -> FundamentalDataSource:
+    if settings.fundamental_data_backend == "mock":
+        return MockFundamentalDataSource()
+    raise NotImplementedError(
+        f"fundamental_data_backend {settings.fundamental_data_backend!r} not implemented yet"
+    )
+
+
+def _build_macro_source(settings: Settings) -> MacroDataSource:
+    if settings.regime_data_backend == "mock":
+        return MockMacroDataSource()
+    raise NotImplementedError(
+        f"regime_data_backend {settings.regime_data_backend!r} not implemented yet"
+    )
+
+
 class AppContainer:
     """Holds singletons for the application's lifetime."""
 
@@ -113,6 +137,8 @@ class AppContainer:
         ai_provider: AIProvider | None = None,
         broker: BrokerClient | None = None,
         embedding_provider: EmbeddingProvider | None = None,
+        fundamental_source: FundamentalDataSource | None = None,
+        macro_source: MacroDataSource | None = None,
     ) -> None:
         self.settings = settings
         self.store = _build_store(settings)
@@ -122,11 +148,18 @@ class AppContainer:
         self.embedding_provider: EmbeddingProvider = (
             embedding_provider or _build_embedding_provider(settings)
         )
+        self.fundamental_source: FundamentalDataSource = (
+            fundamental_source or _build_fundamental_source(settings)
+        )
+        self.macro_source: MacroDataSource = macro_source or _build_macro_source(settings)
 
         self.stock_repo = StockRepository(self.store)
         self.feature_repo = FeatureRepository(self.store)
+        self.fundamental_repo = FundamentalRepository(self.store)
+        self.market_regime_repo = MarketRegimeRepository(self.store)
         self.signal_repo = SignalRepository(self.store)
         self.trade_repo = TradeRepository(self.store)
+        self.outcome_repo = OutcomeRepository(self.store)
         self.ai_repo = AiAnalysisRepository(self.store)
         self.embedding_repo = EmbeddingRepository(self.store)
         self.news_repo = NewsRepository(self.store)
@@ -146,8 +179,22 @@ class AppContainer:
         self.signal_service = SignalService(
             self.signal_repo, LogWriter("signal_engine", self.log_repo)
         )
+        self.fundamental_service = FundamentalService(
+            self.fundamental_repo,
+            self.fundamental_source,
+            LogWriter("fundamental_engine", self.log_repo),
+        )
+        self.market_regime_service = MarketRegimeService(
+            self.market_regime_repo,
+            self.macro_source,
+            LogWriter("market_regime_engine", self.log_repo),
+        )
         self.integrity_service = IntegrityService(
-            self.feature_repo, self.signal_repo, self.trade_repo, self.ai_repo
+            self.feature_repo,
+            self.signal_repo,
+            self.trade_repo,
+            self.ai_repo,
+            self.outcome_repo,
         )
         self.news_service = NewsService(
             self.news_repo, LogWriter("news_service", self.log_repo), self.source
@@ -176,6 +223,7 @@ class AppContainer:
             self.portfolio_service,
             LogWriter("risk_engine", self.log_repo),
             settings.risk,
+            settings.regime_low_exposure_position_ratio,
         )
         self.execution_service = ExecutionService(
             self.trade_repo,
@@ -186,6 +234,14 @@ class AppContainer:
             LogWriter("execution_engine", self.log_repo),
             settings,
         )
+        self.outcome_service = OutcomeService(
+            self.outcome_repo,
+            self.trade_repo,
+            self.signal_repo,
+            self.ai_repo,
+            LogWriter("outcome_service", self.log_repo),
+        )
+        learning_enabled = settings.learning_loop_enabled
         self.position_monitor_service = PositionMonitorService(
             self.position_repo,
             self.trade_repo,
@@ -194,6 +250,7 @@ class AppContainer:
             self.source,
             LogWriter("position_monitor", self.log_repo),
             settings.exit,
+            outcome_service=self.outcome_service if learning_enabled else None,
         )
         self.trading_guard_service = TradingGuardService(
             self.system_state_repo,
@@ -222,6 +279,13 @@ class AppContainer:
             execution_service=self.execution_service if execution_enabled else None,
             source=self.source if execution_enabled else None,
             trading_guard=self.trading_guard_service if execution_enabled else None,
+            fundamental_service=(
+                self.fundamental_service if settings.fundamental_filter_enabled else None
+            ),
+            market_regime_service=(
+                self.market_regime_service if settings.regime_adjustment_enabled else None
+            ),
+            fundamental_min_score=settings.fundamental_min_score,
         )
         self.backtest_service = BacktestService(
             self.backtest_repo, LogWriter("backtest_service", self.log_repo), self.source
@@ -249,6 +313,14 @@ def get_ai_service() -> AIService:
     return get_container().ai_service
 
 
+def get_fundamental_service() -> FundamentalService:
+    return get_container().fundamental_service
+
+
+def get_market_regime_service() -> MarketRegimeService:
+    return get_container().market_regime_service
+
+
 def get_portfolio_service() -> PortfolioService:
     return get_container().portfolio_service
 
@@ -263,3 +335,7 @@ def get_trading_guard_service() -> TradingGuardService:
 
 def get_reconciliation_service() -> ReconciliationService:
     return get_container().reconciliation_service
+
+
+def get_outcome_service() -> OutcomeService:
+    return get_container().outcome_service

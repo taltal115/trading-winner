@@ -38,6 +38,10 @@ class RiskInputs(BaseModel):
     sector_exposure: float  # current notional already held in this sector
     holding_ticker: bool
     intraday_round_trips_this_week: int = 0
+    # Market Regime risk_multiplier (TRADING_ENGINE.md 7.1). Deterministic, hard
+    # constraint applied AFTER AI. Defaults to 1.0 (no-op) so sizing is unchanged
+    # when the Market Regime Engine is disabled.
+    regime_risk_multiplier: float = 1.0
 
 
 class RiskAssessment(BaseModel):
@@ -62,7 +66,9 @@ def assess_risk(inputs: RiskInputs, limits: RiskLimits) -> RiskAssessment:
     stop_distance = compute_stop_distance(inputs.entry_price, inputs.atr)
     stop_price = inputs.entry_price - stop_distance
 
-    risk_capital = inputs.account_equity * limits.risk_per_trade * multiplier
+    risk_capital = (
+        inputs.account_equity * limits.risk_per_trade * multiplier * inputs.regime_risk_multiplier
+    )
     raw_quantity = floor(risk_capital / stop_distance) if stop_distance > 0 else 0
 
     # Cap to the single-position notional limit (hard resize, not a rejection).

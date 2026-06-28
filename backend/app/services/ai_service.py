@@ -23,7 +23,7 @@ from app.models.enums import LogLevel
 from app.repositories.repositories import AiAnalysisRepository
 from app.services.ai_provider import AIProvider
 from app.services.log_writer import LogWriter
-from app.services.retrieval_service import RetrievalService
+from app.services.retrieval_service import RetrievalResult, RetrievalService
 from app.utils.ids import ai_analysis_id
 
 
@@ -47,6 +47,9 @@ class AIService:
         signal: Signal,
         features: FeatureSnapshot,
         news: list[NewsItem],
+        *,
+        fundamental_score: float | None = None,
+        regime_state: str | None = None,
     ) -> AiAnalysis | None:
         if signal.score < self._settings.ai_score_threshold:
             return None
@@ -60,6 +63,7 @@ class AIService:
             )
             return None
 
+        retrieval = self._retrieve_context(signal.ticker, news)
         context = AIPromptContext(
             ticker=signal.ticker,
             news=[
@@ -75,7 +79,9 @@ class AIService:
                 "relative_volume": features.volume.relative_volume,
             },
             catalyst_type=catalyst.catalyst_type,
-            retrieved_context=self._retrieve_context(signal.ticker, news),
+            retrieved_context=retrieval.context,
+            fundamental_score=fundamental_score,
+            regime_state=regime_state,
         )
 
         try:
@@ -90,7 +96,7 @@ class AIService:
             )
             return None
 
-        analysis = self._build_analysis(signal, output)
+        analysis = self._build_analysis(signal, output, retrieval.source_ids)
         self._ai.save(analysis)
         self._log.log(
             event="ai_analysis_created",
@@ -99,12 +105,17 @@ class AIService:
         )
         return analysis
 
-    def _retrieve_context(self, ticker: str, news: list[NewsItem]) -> list[str]:
+    def _retrieve_context(self, ticker: str, news: list[NewsItem]) -> RetrievalResult:
         if self._retrieval is None:
-            return []
-        return self._retrieval.retrieve(ticker, [item.headline for item in news])
+            return RetrievalResult(context=[], source_ids=[])
+        return self._retrieval.retrieve_with_provenance(ticker, [item.headline for item in news])
 
-    def _build_analysis(self, signal: Signal, output: AIReasoningOutput) -> AiAnalysis:
+    def _build_analysis(
+        self,
+        signal: Signal,
+        output: AIReasoningOutput,
+        retrieved_source_ids: list[str],
+    ) -> AiAnalysis:
         cap = self._settings.ai_max_confidence_adjustment
         clamped = max(-cap, min(cap, output.confidence_adjustment))
         embedding_version = (
@@ -126,6 +137,7 @@ class AIService:
             reasoning_version=self._provider.reasoning_version,
             prompt_version=self._provider.prompt_version,
             embedding_version=embedding_version,
+            retrieved_source_ids=retrieved_source_ids,
         )
 
     def list_analyses(self) -> list[AiAnalysis]:

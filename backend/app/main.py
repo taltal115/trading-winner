@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api.routes import ai, backtests, health, pipeline, portfolio, signals, trading
+from app.api.routes import ai, backtests, health, outcomes, pipeline, portfolio, signals, trading
 from app.config.settings import get_settings
 
 
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     app.include_router(ai.router)
     app.include_router(portfolio.router)
     app.include_router(trading.router)
+    app.include_router(outcomes.router)
     return app
 
 

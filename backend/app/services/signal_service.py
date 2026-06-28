@@ -7,8 +7,13 @@ actionable; they remain reproducible from features + the scoring engine.
 
 from __future__ import annotations
 
+from app.engines.fundamental_engine import (
+    BANKRUPTCY_RISK,
+    FUNDAMENTAL_VETO_SCORE,
+    compute_quality_bias,
+)
 from app.engines.scoring_engine import score_features
-from app.models.entities import AiAnalysis, FeatureSnapshot, Signal
+from app.models.entities import AiAnalysis, FeatureSnapshot, FundamentalSnapshot, Signal
 from app.models.enums import SignalDecision, SignalStatus
 from app.repositories.repositories import SignalRepository
 from app.services.log_writer import LogWriter
@@ -20,12 +25,29 @@ class SignalService:
         self._signals = signal_repo
         self._log = log_writer
 
-    def generate_signal(self, features: FeatureSnapshot) -> Signal | None:
-        result = score_features(features)
+    def generate_signal(
+        self,
+        features: FeatureSnapshot,
+        *,
+        fundamental: FundamentalSnapshot | None = None,
+        market_regime_id: str | None = None,
+        min_score: float = FUNDAMENTAL_VETO_SCORE,
+    ) -> Signal | None:
+        """Score a feature snapshot into a persisted signal.
+
+        When a ``fundamental`` snapshot is supplied (Fundamental Engine enabled)
+        the bounded QualityBias and hard veto are applied deterministically
+        BEFORE any AI step. With no fundamental the scoring is unchanged.
+        """
+        quality_bias, veto = self._fundamental_terms(fundamental, min_score)
+        result = score_features(features, quality_bias=quality_bias, fundamental_veto=veto)
         if result.decision == SignalDecision.IGNORE:
             self._log.log(
                 event="signal_ignored",
-                message=f"{features.ticker} scored {result.adjusted_score} (IGNORE)",
+                message=(
+                    f"{features.ticker} scored {result.adjusted_score} (IGNORE"
+                    f"{', fundamental veto' if veto else ''})"
+                ),
                 metadata={"ticker": features.ticker, "score": result.adjusted_score},
             )
             return None
@@ -40,6 +62,8 @@ class SignalService:
             risk_score=result.risk_score,
             feature_snapshot_id=features.id,
             ai_analysis_id=None,
+            fundamental_id=fundamental.id if fundamental is not None else None,
+            market_regime_id=market_regime_id,
             decision=result.decision,
             status=SignalStatus.OPEN,
         )
@@ -51,24 +75,64 @@ class SignalService:
         )
         return signal
 
-    def generate_for_features(self, features: list[FeatureSnapshot]) -> list[Signal]:
+    def generate_for_features(
+        self,
+        features: list[FeatureSnapshot],
+        *,
+        fundamentals: dict[str, FundamentalSnapshot] | None = None,
+        market_regime_id: str | None = None,
+        min_score: float = FUNDAMENTAL_VETO_SCORE,
+    ) -> list[Signal]:
         signals: list[Signal] = []
         for snapshot in features:
-            signal = self.generate_signal(snapshot)
+            fundamental = fundamentals.get(snapshot.ticker) if fundamentals is not None else None
+            signal = self.generate_signal(
+                snapshot,
+                fundamental=fundamental,
+                market_regime_id=market_regime_id,
+                min_score=min_score,
+            )
             if signal is not None:
                 signals.append(signal)
         return signals
 
+    @staticmethod
+    def _fundamental_terms(
+        fundamental: FundamentalSnapshot | None, min_score: float
+    ) -> tuple[float, bool]:
+        """Return ``(quality_bias, veto)`` for a snapshot, or the no-op default."""
+        if fundamental is None:
+            return 1.0, False
+        bias = compute_quality_bias(fundamental.fundamental_score)
+        veto = (
+            BANKRUPTCY_RISK in fundamental.risk_flags or fundamental.fundamental_score < min_score
+        )
+        return bias, veto
+
     def apply_ai_analysis(
-        self, features: FeatureSnapshot, signal: Signal, analysis: AiAnalysis
+        self,
+        features: FeatureSnapshot,
+        signal: Signal,
+        analysis: AiAnalysis,
+        *,
+        fundamental: FundamentalSnapshot | None = None,
+        min_score: float = FUNDAMENTAL_VETO_SCORE,
     ) -> Signal:
         """Re-score the signal with the AI confidence adjustment and link it.
 
         The scoring engine still owns the decision: AI only supplies a bounded
         ``confidence_adjustment`` that flows through ``score_features``. The AI's
-        ``catalyst_direction`` / ``ai_bias`` never set the decision directly.
+        ``catalyst_direction`` / ``ai_bias`` never set the decision directly. The
+        deterministic QualityBias/veto are re-applied so the §6.1 chain holds:
+        AdjustedScore = QualityBiasedScore × (1 + AI_Adjustment).
         """
-        result = score_features(features, ai_confidence_adjustment=analysis.confidence_adjustment)
+        quality_bias, veto = self._fundamental_terms(fundamental, min_score)
+        result = score_features(
+            features,
+            ai_confidence_adjustment=analysis.confidence_adjustment,
+            quality_bias=quality_bias,
+            fundamental_veto=veto,
+        )
         updated = signal.model_copy(
             update={
                 "score": result.adjusted_score,

@@ -76,6 +76,17 @@ Transcript text
 Price trend snapshot
 Volume spike indicator
 Sector performance
+4.5 Fundamental & Regime Context (NEW — additive)
+
+The AI prompt/input now ALSO receives two read-only deterministic signals computed upstream:
+
+fundamental_score (0–100) — from the Fundamental Engine (quality bias / filter).
+regime_state — from the Market Regime Engine (bullish | neutral | bearish | high_volatility).
+
+These are provided as CONTEXT ONLY. They are produced by deterministic engines before AI runs.
+
+Non-override rule (hard):
+AI must NEVER override, recompute, or contradict the Market Regime constraints (regime_state, risk_multiplier, exposure_recommendation). This is consistent with the existing "AI is enrichment-only, never execution authority" rule. AI may reference regime_state to explain context, but the deterministic regime layer (TRADING_ENGINE §6.1 / §7.1) is applied after AI and cannot be relaxed by AI output. Likewise, AI cannot override the hard fundamental filter (bankruptcy_risk / fundamental_score < 20 → IGNORE).
 5. RAG (Retrieval-Augmented Generation)
 5.1 Vector Storage
 
@@ -113,6 +124,7 @@ You must NOT:
 - Recommend direct trades without context
 - Ignore risk factors
 - Provide vague explanations
+- Override, recompute, or contradict the market regime constraints (regime_state, risk_multiplier, exposure_recommendation) or the fundamental hard filter
 6.2 User Prompt Template
 TICKER: {ticker}
 
@@ -124,11 +136,22 @@ MARKET CONTEXT:
 - Volume spike: {volume}
 - Sector trend: {sector_trend}
 
+FUNDAMENTAL CONTEXT (read-only, deterministic):
+- Fundamental score: {fundamental_score}
+- Risk flags: {risk_flags}
+
+MARKET REGIME (read-only, deterministic — DO NOT override):
+- Regime state: {regime_state}
+- Exposure recommendation: {exposure_recommendation}
+
 RETRIEVED CONTEXT (RAG):
 {similar_events}
 
 FEATURE SUMMARY:
 {features}
+
+NOTE: fundamental_score and regime_state are provided as context only.
+You must not override the market regime constraints or the fundamental hard filter.
 
 Return JSON only:
 7. AI Output Schema

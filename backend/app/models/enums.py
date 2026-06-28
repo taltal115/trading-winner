@@ -57,6 +57,27 @@ class Sentiment(StrEnum):
     NEGATIVE = "negative"
 
 
+class RegimeState(StrEnum):
+    """Macro market environment from the Market Regime Engine.
+
+    Deterministic, market-wide. AI may read it for context but can never
+    override it (ARCHITECTURE.md 3.2.2 / TRADING_ENGINE.md 4.6).
+    """
+
+    BULLISH = "bullish"
+    NEUTRAL = "neutral"
+    BEARISH = "bearish"
+    HIGH_VOLATILITY = "high_volatility"
+
+
+class ExposureRecommendation(StrEnum):
+    """Deterministic activity cap from the Market Regime Engine."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class ExitReason(StrEnum):
     STOP_LOSS = "STOP_LOSS"
     PROFIT_TARGET = "PROFIT_TARGET"

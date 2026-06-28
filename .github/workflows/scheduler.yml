@@ -13,12 +13,13 @@ on:
       job:
         description: Worker to run on demand
         type: choice
-        options: [daily_pipeline, position_monitor, reconciliation]
+        options: [daily_pipeline, position_monitor, reconciliation, learning_job]
         default: daily_pipeline
   schedule:
     - cron: "*/30 13-20 * * 1-5" # daily pipeline, every 30m during market hours
     - cron: "*/15 13-20 * * 1-5" # position monitor (live exits), every 15m
     - cron: "15 20 * * 1-5" # end-of-day position reconciliation
+    - cron: "0 22 * * 1-5" # learning loop backfill (Phase 6+)
 
 permissions:
   contents: read
@@ -93,3 +94,24 @@ jobs:
       - name: Write GCP credentials
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
       - run: python -m app.workers.reconciliation
+
+  learning-job:
+    if: >-
+      github.event.schedule == '0 22 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'learning_job')
+    runs-on: ubuntu-latest
+    environment: staging
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - run: pip install ".[firestore]"
+      - name: Write GCP credentials
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+      - run: python -m app.workers.learning_job

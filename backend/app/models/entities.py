@@ -15,8 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.enums import (
     CatalystDirection,
     CatalystType,
+    ExposureRecommendation,
     JobStatus,
     LogLevel,
+    RegimeState,
     Sentiment,
     SignalDecision,
     SignalStatus,
@@ -112,6 +114,51 @@ class FeatureSnapshot(Entity):
     volatility: VolatilityFeatures
 
 
+class QualitySubscores(BaseModel):
+    """Fundamental quality subscores (0-100) for full traceability."""
+
+    model_config = ConfigDict(extra="forbid")
+    profitability_score: float = Field(ge=0.0, le=100.0)
+    growth_score: float = Field(ge=0.0, le=100.0)
+    leverage_score: float = Field(ge=0.0, le=100.0)
+    cashflow_score: float = Field(ge=0.0, le=100.0)
+
+
+class FundamentalSnapshot(Entity):
+    """Top-level document: fundamentals/fundamental_{ticker}_{date}.
+
+    Per-ticker, per-date Fundamental Engine output (DATABASE.md 4.2.1). A
+    deterministic quality bias/filter; never an execution authority.
+    """
+
+    ticker: str
+    date: date
+    timestamp: datetime
+    fundamental_score: float = Field(ge=0.0, le=100.0)
+    quality_subscores: QualitySubscores
+    risk_flags: list[str] = Field(default_factory=list)
+    inputs_summary: dict[str, object] = Field(default_factory=dict)
+    source: str = "mock"
+    engine_version: str = "fundamental-v1"
+
+
+class MarketRegimeSnapshot(Entity):
+    """Top-level document: market_regime/regime_{date}.
+
+    Market-wide (not per-ticker) regime snapshot computed once per cycle
+    (DATABASE.md 4.2.2). A deterministic, hard risk constraint applied
+    downstream; AI can never override it.
+    """
+
+    date: date
+    timestamp: datetime
+    regime_state: RegimeState
+    risk_multiplier: float = Field(ge=0.5, le=1.5)
+    exposure_recommendation: ExposureRecommendation
+    inputs_summary: dict[str, object] = Field(default_factory=dict)
+    engine_version: str = "market-regime-v1"
+
+
 class ScoreBreakdown(BaseModel):
     """Component scores (0-100) for full traceability of FinalScore."""
 
@@ -134,6 +181,11 @@ class Signal(Entity):
     strategy: str = "momentum_catalyst"
     feature_snapshot_id: str
     ai_analysis_id: str | None = None
+    # Additive traceability for the new engines (DATABASE.md 8.1). Optional in
+    # Phase 1; populated when the respective engine is enabled so the applied
+    # QualityBias / regime sizing stays reconstructable.
+    fundamental_id: str | None = None
+    market_regime_id: str | None = None
     decision: SignalDecision
     status: SignalStatus = SignalStatus.OPEN
 
@@ -165,6 +217,8 @@ class AiAnalysis(Entity):
     reasoning_version: str
     prompt_version: str = "1.0"
     embedding_version: str = "v1"
+    # RAG provenance: source document ids whose text was injected into the prompt.
+    retrieved_source_ids: list[str] = Field(default_factory=list)
 
 
 class EmbeddingRecord(Entity):
@@ -200,6 +254,37 @@ class Trade(Entity):
     risk_decision_id: str | None = None
     pnl: float | None = None
     fees: float = 0.0
+
+
+class TradeOutcome(Entity):
+    """Closed-trade learning record (``outcomes/``).
+
+    Completes the traceability chain:
+    feature → signal → ai_analysis → trade → outcome (DATABASE.md section 9).
+    Append-only; one outcome per closed trade. Never an execution authority.
+    """
+
+    trade_id: str
+    ticker: str
+    signal_id: str
+    feature_snapshot_id: str
+    ai_analysis_id: str | None = None
+    risk_decision_id: str | None = None
+    fundamental_id: str | None = None
+    market_regime_id: str | None = None
+    entry_time: datetime
+    exit_time: datetime
+    entry_price: float
+    exit_price: float
+    quantity: float
+    realized_pnl: float
+    return_pct: float
+    hold_days: int = Field(ge=0)
+    is_winner: bool
+    exit_reason: str
+    entry_score: float
+    ai_bias: float | None = None
+    ai_confidence_adjustment: float | None = None
 
 
 class RiskDecision(Entity):

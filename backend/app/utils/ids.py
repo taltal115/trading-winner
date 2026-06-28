@@ -51,12 +51,31 @@ def trade_id(ticker: str, when: datetime) -> str:
     return f"trade_{validate_ticker(ticker)}_{when.strftime('%Y-%m-%d_%H%M%S')}"
 
 
+def outcome_id(ticker: str, exit_time: datetime) -> str:
+    """Learning-loop outcome id keyed on exit time, e.g. outcome_NVDA_2026-07-28_153000."""
+    return f"outcome_{validate_ticker(ticker)}_{exit_time.strftime('%Y-%m-%d_%H%M%S')}"
+
+
 def news_id(ticker: str, when: date | datetime, sequence: int) -> str:
     return f"news_{validate_ticker(ticker)}_{_date_part(when)}_{sequence}"
 
 
 def ai_analysis_id(ticker: str, when: date | datetime) -> str:
     return f"ai_{validate_ticker(ticker)}_{_date_part(when)}"
+
+
+def fundamental_id(ticker: str, when: date | datetime) -> str:
+    """Per-ticker fundamentals snapshot id, e.g. fundamental_NVDA_2026-07-28."""
+    return f"fundamental_{validate_ticker(ticker)}_{_date_part(when)}"
+
+
+def market_regime_id(when: date | datetime) -> str:
+    """Market-wide regime snapshot id, e.g. regime_2026-07-28.
+
+    Regime is macro (not tied to a ticker), so it uses the ``{entity}_{id}``
+    form with the date as the id (DATABASE.md 4.2.2).
+    """
+    return f"regime_{_date_part(when)}"
 
 
 def embedding_id(source_id: str) -> str:

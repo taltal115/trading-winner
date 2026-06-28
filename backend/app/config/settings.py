@@ -112,6 +112,24 @@ class Settings(BaseSettings):
     embedding_backend: str = "mock"  # "mock" (deterministic, default) | "openai"
     embedding_model: str = "text-embedding-3-large"
 
+    # Fundamental Engine (TRADING_ENGINE.md 4.4/4.5). OFF by default so the
+    # scoring/decision path is byte-for-byte unchanged. When enabled, the bounded
+    # QualityBias and the hard veto (bankruptcy_risk or score below the threshold)
+    # are applied deterministically before AI.
+    fundamental_filter_enabled: bool = False
+    fundamental_data_backend: str = "mock"  # "mock" (deterministic, default) | "finnhub"
+    fundamental_min_score: float = 20.0  # hard-veto threshold (§4.5)
+
+    # Market Regime Engine (TRADING_ENGINE.md 4.6/7.1). OFF by default so
+    # risk_multiplier is effectively 1.0 and sizing/exposure are unchanged. When
+    # enabled, the regime risk_multiplier scales sizing and a low
+    # exposure_recommendation tightens the open-position cap (deterministic,
+    # applied after AI).
+    regime_adjustment_enabled: bool = False
+    regime_data_backend: str = "mock"  # "mock" (deterministic, default) | "ibkr"
+    # Open-position cap multiplier applied when exposure_recommendation == low.
+    regime_low_exposure_position_ratio: float = 0.5
+
     @property
     def ai_required_for_execution(self) -> bool:
         return self.phase >= SystemPhase.AI_INTEGRATION
@@ -129,6 +147,11 @@ class Settings(BaseSettings):
     def reconciliation_enabled(self) -> bool:
         """Broker position reconciliation runs from Phase 5 (staging) onward."""
         return self.phase >= SystemPhase.STAGING
+
+    @property
+    def learning_loop_enabled(self) -> bool:
+        """Trade-outcome recording and the learning job run from Phase 6 onward."""
+        return self.phase >= SystemPhase.PRODUCTION
 
 
 _settings: Settings | None = None

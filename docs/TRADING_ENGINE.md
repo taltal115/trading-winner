@@ -103,6 +103,52 @@ Unusual options flow
 Output:
 ~10–30 stocks
 
+Stage 4.5: Fundamental Engine (NEW — additive)
+
+Runs AFTER the Catalyst Filter and BEFORE the Scoring Engine. It does not remove or rename any stage; it only adds a quality bias/filter.
+
+Purpose:
+Produce a Quality Score (0–100) reflecting long-term financial health, used as a short-term swing-trading quality bias. NOT a long-term investing decision engine.
+
+Inputs:
+Financial statements (revenue, earnings, cashflow)
+Balance-sheet metrics
+Debt / leverage levels
+Profitability metrics
+Dilution / share-issuance trends
+
+Outputs:
+fundamental_score: 0–100
+quality_subscores: { profitability_score, growth_score, leverage_score, cashflow_score }
+risk_flags: e.g. bankruptcy_risk, dilution_risk
+
+Hard filter (deterministic):
+If risk_flags contains bankruptcy_risk, OR fundamental_score < 20 → candidate is downgraded to IGNORE regardless of any other score or AI input.
+
+Output (unfiltered candidates pass through to scoring):
+~10–30 stocks (same set, now annotated with fundamental_score)
+
+Stage 4.6: Market Regime Engine (NEW — additive)
+
+Runs AFTER the Fundamental Engine and BEFORE the Scoring Engine. It is market-wide (not per-ticker) and computed once per cycle.
+
+Purpose:
+Detect the macro environment and set a deterministic risk appetite. It can REDUCE activity (throttle sizing / exposure) but NEVER places trades and NEVER overrides the Risk Engine.
+
+Inputs:
+SPY trend
+VIX (volatility index)
+Sector breadth
+Market momentum
+Cross-stock correlation
+
+Outputs:
+regime_state: bullish | neutral | bearish | high_volatility
+risk_multiplier: 0.5–1.5
+exposure_recommendation: low | medium | high
+
+This risk_multiplier is a deterministic, hard constraint applied to sizing/exposure (see sections 6 and 7). AI cannot override it.
+
 Stage 5: Scoring Engine
 
 We compute final score:
@@ -138,6 +184,32 @@ Options flow
 Relative volume
 Breakout volume spike
 Institutional activity proxy
+4.4 Fundamental Quality Bias (NEW — additive)
+
+The Fundamental Engine's fundamental_score is applied as a bounded quality bias/filter, NOT as a new weighted alpha term. This preserves the existing six weights (0.30/0.20/0.20/0.15/0.10/0.05) and keeps backtests of the base formula reproducible (backward compatible).
+
+QualityBias =
+0.9 + 0.2 × (fundamental_score / 100)
+
+This bounds the bias to the range [0.9, 1.1] — at most ±10%. High-quality names get a mild boost; low-quality names get a mild penalty.
+
+Before (unchanged base score):
+
+FinalScore =
+(0.30 × MomentumScore)
++ (0.20 × VolumeScore)
++ (0.20 × CatalystScore)
++ (0.15 × SectorStrength)
++ (0.10 × VolatilityBreakout)
++ (0.05 × MacroAlignment)
+
+After (quality-biased score):
+
+QualityBiasedScore =
+FinalScore × QualityBias
+
+Hard fundamental filter (deterministic, see Stage 4.5):
+If risk_flags contains bankruptcy_risk OR fundamental_score < 20 → decision is forced to IGNORE, regardless of QualityBiasedScore or AI output.
 5. AI Enhancement Layer
 
 AI is applied ONLY after scoring.
@@ -169,6 +241,31 @@ Decision rules:
 70–85 → BUY
 50–70 → WATCH
 < 50 → IGNORE
+6.1 Updated Decision Chain (NEW — additive)
+
+The decision chain is extended additively to incorporate the Fundamental quality bias (Stage 4.5 / §4.4) and the Market Regime risk_multiplier (Stage 4.6). The decision thresholds above are UNCHANGED.
+
+Before (base chain):
+
+AdjustedScore =
+FinalScore × (1 + AI_Adjustment)
+→ thresholds applied to AdjustedScore
+
+After (quality + regime aware chain):
+
+QualityBiasedScore =
+FinalScore × QualityBias            (deterministic, from §4.4)
+
+AdjustedScore =
+QualityBiasedScore × (1 + AI_Adjustment)   (AI enrichment, bounded)
+
+→ thresholds (85 / 70–85 / 50–70 / <50) applied to AdjustedScore, unchanged.
+
+Deterministic ordering (must hold):
+1. QualityBias and the hard fundamental filter are deterministic and applied BEFORE AI.
+2. AI_Adjustment is bounded enrichment applied to the quality-biased score.
+3. The Market Regime risk_multiplier and exposure_recommendation are applied AFTER AI, deterministically, to sizing and exposure (§7 and §11). AI has no input into and CANNOT override the regime layer.
+4. The hard fundamental filter (bankruptcy_risk / fundamental_score < 20) forces IGNORE regardless of AdjustedScore or AI output.
 7. Position Sizing Model
 
 We do NOT use fixed size trades.
@@ -183,6 +280,30 @@ Defaults:
 RiskPerTrade = 1% of equity
 ConfidenceMultiplier = 0.5 → 1.5
 StopDistance = ATR-based (e.g. 2 × ATR)
+7.1 Regime-Adjusted Sizing (NEW — additive)
+
+The Market Regime risk_multiplier (0.5–1.5) is applied to position sizing as a deterministic, hard constraint. This is where the regime layer throttles or expands activity.
+
+Before (base sizing):
+
+PositionSize =
+(AccountEquity × RiskPerTrade × ConfidenceMultiplier)
+/ StopDistance
+
+After (regime-adjusted sizing):
+
+PositionSize =
+(AccountEquity × RiskPerTrade × ConfidenceMultiplier × RiskMultiplier)
+/ StopDistance
+
+Where RiskMultiplier = market_regime.risk_multiplier (0.5–1.5).
+
+Additionally, exposure_recommendation deterministically caps new activity:
+- low → reduce max open positions and total exposure (e.g. defensive throttle), bias toward no new entries.
+- medium → standard limits (§11).
+- high → standard limits; never exceeds the hard caps in §11.
+
+The regime layer can only REDUCE risk below or scale it within the §11 hard limits — it never relaxes a hard cap, never places trades, and AI cannot override it.
 8. Exit Strategy
 
 We use hybrid exit logic:

@@ -33,6 +33,7 @@ class ScoreResult(BaseModel):
 
     breakdown: ScoreBreakdown
     final_score: float
+    quality_biased_score: float
     adjusted_score: float
     decision: SignalDecision
     expected_return: float
@@ -77,8 +78,17 @@ def score_features(
     sector_strength: float = _NEUTRAL,
     macro_alignment: float = _NEUTRAL,
     ai_confidence_adjustment: float = 0.0,
+    quality_bias: float = 1.0,
+    fundamental_veto: bool = False,
 ) -> ScoreResult:
-    """Produce the full deterministic score result for a feature snapshot."""
+    """Produce the full deterministic score result for a feature snapshot.
+
+    ``quality_bias`` (default 1.0) is the bounded Fundamental quality bias
+    (TRADING_ENGINE.md 4.4 / 6.1), applied to FinalScore BEFORE the AI
+    adjustment. ``fundamental_veto`` (default False) is the hard fundamental
+    filter that forces IGNORE. Both default to no-ops so the base scoring is
+    byte-for-byte unchanged when the Fundamental Engine is disabled.
+    """
     breakdown = ScoreBreakdown(
         momentum_score=compute_momentum_score(features),
         volume_score=compute_volume_score(features),
@@ -95,15 +105,18 @@ def score_features(
         + WEIGHT_VOLATILITY * breakdown.volatility_breakout
         + WEIGHT_MACRO * breakdown.macro_alignment
     )
-    adjusted_score = _clamp(final_score * (1.0 + ai_confidence_adjustment))
+    quality_biased_score = final_score * quality_bias
+    adjusted_score = _clamp(quality_biased_score * (1.0 + ai_confidence_adjustment))
     expected_return = round(adjusted_score / 100.0 * _MAX_EXPECTED_RETURN, 4)
     risk_score = min(1.0, features.volatility.std_dev * 10.0)
+    decision = SignalDecision.IGNORE if fundamental_veto else decide(adjusted_score)
 
     return ScoreResult(
         breakdown=breakdown,
         final_score=round(final_score, 4),
+        quality_biased_score=round(quality_biased_score, 4),
         adjusted_score=round(adjusted_score, 4),
-        decision=decide(adjusted_score),
+        decision=decision,
         expected_return=expected_return,
         risk_score=round(risk_score, 4),
     )

@@ -20,6 +20,14 @@ def test_news_id_sequence() -> None:
     assert ids.news_id("NVDA", date(2026, 7, 28), 1) == "news_NVDA_2026-07-28_1"
 
 
+def test_fundamental_and_regime_ids() -> None:
+    d = date(2026, 7, 28)
+    assert ids.fundamental_id("NVDA", d) == "fundamental_NVDA_2026-07-28"
+    assert ids.market_regime_id(d) == "regime_2026-07-28"
+    assert ids.is_valid_id("fundamental_NVDA_2026-07-28")
+    assert ids.is_valid_id("regime_2026-07-28")
+
+
 def test_invalid_ticker_rejected() -> None:
     with pytest.raises(ValueError):
         ids.feature_id("nvda", date(2026, 7, 28))

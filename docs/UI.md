@@ -63,6 +63,7 @@ AI explanations
 Main overview:
 
 Market status
+Market Regime widget (read-only — NEW)
 Top signals
 Portfolio summary
 Active trades
@@ -72,6 +73,7 @@ Displays:
 
 Ranked opportunities
 Score breakdown
+Fundamental Score breakdown (subscores + risk_flags, read-only — NEW)
 AI reasoning
 Entry suggestions
 
@@ -157,6 +159,40 @@ Catalyst type
 Risk factors
 Confidence score
 Reasoning trace
+6.6 Market Regime Widget (NEW — read-only)
+
+Lives on the Dashboard. Subscribes to market_regime/ (latest regime_{date} document). Display only — it never computes regime or risk.
+
+┌──────────────────────────────┐
+│ Market Regime               │
+│ State: NEUTRAL              │
+│ Risk Multiplier: 1.0x       │
+│ Exposure: MEDIUM            │
+└──────────────────────────────┘
+
+Fields shown:
+regime_state (bullish | neutral | bearish | high_volatility)
+risk_multiplier (0.5–1.5)
+exposure_recommendation (low | medium | high)
+
+Color cues (display only): bullish = green, neutral = gray, bearish = red, high_volatility = amber.
+6.7 Fundamental Score Breakdown (NEW — read-only)
+
+Lives on the Signal page / signal detail panel. Subscribes to fundamentals/ (fundamental_{ticker}_{date}). Display only — it never computes scores.
+
+┌──────────────────────────────┐
+│ Fundamental Quality: 78     │
+│ Profitability: 84           │
+│ Growth: 81                  │
+│ Leverage: 66                │
+│ Cashflow: 80                │
+│ Risk Flags: dilution_risk   │
+└──────────────────────────────┘
+
+Fields shown:
+fundamental_score (0–100)
+quality_subscores: profitability_score, growth_score, leverage_score, cashflow_score
+risk_flags (e.g. bankruptcy_risk, dilution_risk)
 7. Real-Time Data Flow
 
 Firestore subscriptions:
@@ -166,6 +202,8 @@ positions/
 trades/
 news/
 market_snapshots/
+fundamentals/
+market_regime/
 
 UI auto-updates via:
 

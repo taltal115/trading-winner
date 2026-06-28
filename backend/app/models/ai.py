@@ -33,6 +33,11 @@ class AIPromptContext(BaseModel):
     feature_summary: dict[str, float]
     catalyst_type: CatalystType
     retrieved_context: list[str] = Field(default_factory=list)  # RAG seam (Phase 3b)
+    # Read-only deterministic context from the new engines (AI_PIPELINE.md 4.5).
+    # Provided for explanation only; AI must NOT override the fundamental hard
+    # filter or the market regime constraints.
+    fundamental_score: float | None = None
+    regime_state: str | None = None
 
 
 class AIReasoningOutput(BaseModel):

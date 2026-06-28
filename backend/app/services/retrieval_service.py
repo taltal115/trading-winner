@@ -43,6 +43,14 @@ class _Candidate:
     text: str
 
 
+@dataclass(frozen=True)
+class RetrievalResult:
+    """RAG output: prompt snippets plus their source document ids for provenance."""
+
+    context: list[str]
+    source_ids: list[str]
+
+
 class RetrievalService:
     def __init__(
         self,
@@ -65,13 +73,16 @@ class RetrievalService:
         return self._embeddings.embedding_version
 
     def retrieve(self, ticker: str, query_texts: list[str]) -> list[str]:
+        return self.retrieve_with_provenance(ticker, query_texts).context
+
+    def retrieve_with_provenance(self, ticker: str, query_texts: list[str]) -> RetrievalResult:
         query = " ".join(text for text in query_texts if text).strip()
         if not query:
-            return []
+            return RetrievalResult(context=[], source_ids=[])
 
         candidates = self._candidates(exclude=set(query_texts))
         if not candidates:
-            return []
+            return RetrievalResult(context=[], source_ids=[])
 
         try:
             vectors_by_source = self._index(candidates)
@@ -83,14 +94,23 @@ class RetrievalService:
                 level=LogLevel.WARNING,
                 metadata={"ticker": ticker},
             )
-            return []
+            return RetrievalResult(context=[], source_ids=[])
 
+        text_to_source = {candidate.text: candidate.source_id for candidate in candidates}
         documents = [
             RetrievalDocument(text=candidate.text, embedding=vectors_by_source[candidate.source_id])
             for candidate in candidates
         ]
         ranked = rank_by_similarity(query_vector, documents, self._top_k, min_score=0.0)
-        context = [doc.text for doc in ranked if doc.score > 0.0]
+        context: list[str] = []
+        source_ids: list[str] = []
+        for doc in ranked:
+            if doc.score <= 0.0:
+                continue
+            context.append(doc.text)
+            source_id = text_to_source.get(doc.text)
+            if source_id is not None:
+                source_ids.append(source_id)
 
         if context:
             self._log.log(
@@ -98,7 +118,7 @@ class RetrievalService:
                 message=f"{ticker}: retrieved {len(context)} similar documents",
                 metadata={"ticker": ticker, "count": len(context)},
             )
-        return context
+        return RetrievalResult(context=context, source_ids=source_ids)
 
     def _index(self, candidates: list[_Candidate]) -> dict[str, list[float]]:
         """Return source_id -> embedding, reusing cached vectors and persisting new ones."""

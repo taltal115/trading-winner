@@ -7,8 +7,10 @@ from app.models.entities import (
     Backtest,
     EmbeddingRecord,
     FeatureSnapshot,
+    FundamentalSnapshot,
     JobRecord,
     LogEntry,
+    MarketRegimeSnapshot,
     NewsItem,
     Portfolio,
     Position,
@@ -17,6 +19,7 @@ from app.models.entities import (
     Stock,
     SystemState,
     Trade,
+    TradeOutcome,
 )
 from app.models.enums import SignalStatus, TradeStatus
 from app.repositories.base import Repository
@@ -40,6 +43,25 @@ class FeatureRepository(Repository[FeatureSnapshot]):
 
     def get_for_ticker(self, ticker: str) -> list[FeatureSnapshot]:
         return [f for f in self.list() if f.ticker == ticker]
+
+
+class FundamentalRepository(Repository[FundamentalSnapshot]):
+    collection = "fundamentals"
+    model = FundamentalSnapshot
+
+    def get_for_ticker(self, ticker: str) -> list[FundamentalSnapshot]:
+        return [f for f in self.list() if f.ticker == ticker]
+
+
+class MarketRegimeRepository(Repository[MarketRegimeSnapshot]):
+    collection = "market_regime"
+    model = MarketRegimeSnapshot
+
+    def get_latest(self) -> MarketRegimeSnapshot | None:
+        snapshots = self.list()
+        if not snapshots:
+            return None
+        return max(snapshots, key=lambda s: s.timestamp)
 
 
 class SignalRepository(Repository[Signal]):
@@ -70,6 +92,22 @@ class TradeRepository(Repository[Trade]):
         return sorted(
             (t for t in self.list() if t.status == TradeStatus.CLOSED),
             key=lambda t: t.exit_time or t.entry_time,
+            reverse=True,
+        )
+
+
+class OutcomeRepository(Repository[TradeOutcome]):
+    collection = "outcomes"
+    model = TradeOutcome
+
+    def get_for_trade(self, trade_id: str) -> TradeOutcome | None:
+        matches = [o for o in self.list() if o.trade_id == trade_id]
+        return matches[0] if matches else None
+
+    def get_for_ticker(self, ticker: str) -> list[TradeOutcome]:
+        return sorted(
+            (o for o in self.list() if o.ticker == ticker),
+            key=lambda o: o.exit_time,
             reverse=True,
         )
 

@@ -27,6 +27,7 @@ from app.repositories.repositories import PositionRepository, TradeRepository
 from app.services.broker import BrokerClient
 from app.services.log_writer import LogWriter
 from app.services.market_data import MarketDataSource
+from app.services.outcome_service import OutcomeService
 from app.services.portfolio_service import PortfolioService
 
 
@@ -40,6 +41,7 @@ class PositionMonitorService:
         source: MarketDataSource,
         log_writer: LogWriter,
         limits: ExitLimits,
+        outcome_service: OutcomeService | None = None,
     ) -> None:
         self._positions = position_repo
         self._trades = trade_repo
@@ -48,6 +50,7 @@ class PositionMonitorService:
         self._source = source
         self._log = log_writer
         self._limits = limits
+        self._outcomes = outcome_service
 
     def monitor_positions(self) -> list[Trade]:
         """Evaluate every open position and close those that hit an exit rule."""
@@ -129,4 +132,6 @@ class PositionMonitorService:
                 "exit_reason": reason,
             },
         )
+        if self._outcomes is not None:
+            self._outcomes.record_from_close(closed_trade, reason)
         return closed_trade
