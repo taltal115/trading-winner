@@ -1,0 +1,73 @@
+[project]
+name = "trading-winner-backend"
+version = "0.1.0"
+description = "AI-assisted quantitative swing-trading system (backend)"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "polars",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "black",
+    "mypy",
+    "pytest",
+    "httpx",
+]
+firestore = [
+    "google-cloud-firestore",
+]
+openai = [
+    "openai",
+]
+ibkr = [
+    "ib_insync",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N"]
+
+# The IBKR adapter tests use in-file fakes that mimic the camelCase ib_insync SDK
+# surface (placeOrder, reqHistoricalData, ...); the casing is intrinsic to the
+# fake and must match the real API the adapter calls.
+[tool.ruff.lint.per-file-ignores]
+"tests/unit/test_ibkr_broker.py" = ["N802", "N803"]
+"tests/unit/test_ibkr_market_data.py" = ["N802", "N803"]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+# Optional adapter SDKs (Firestore, OpenAI, IBKR) are imported lazily and only
+# installed via their extras. Don't fail strict type-checking when absent.
+[[tool.mypy.overrides]]
+module = ["google.*", "openai.*", "ib_insync.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
